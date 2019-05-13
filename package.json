@@ -1,0 +1,8 @@
+{
+  "name": "js-7nuphi",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "tracking": "^1.1.3"
+  }
+}
