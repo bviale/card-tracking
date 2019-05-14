@@ -4,7 +4,7 @@ const img = new Image(300, 300);
 img.addEventListener('load', () => {
   console.log('loaded')
 });
-img.src = 'https://i.ibb.co/VjdY0t8/Untitled.png';
+img.src = 'https://stackblitz.io/files/image-tracking/github/bviale/card-tracking/master/shapes1.png';
 img.crossOrigin = "anonymous";
 
 const canvas = document.getElementById('canvas');
