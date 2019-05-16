@@ -2,12 +2,24 @@
 <html>
   <head>
       <script src="https://trackingjs.com/bower/tracking.js/build/tracking-min.js"></script>
-      
-    <script src="./index.js"></script>
+      <script src="./index.js"></script>
+
+      <style>
+        canvas {
+          cursor: crosshair;
+        }
+
+        #coordinates {
+          position: fixed;
+          top: 0;
+          right: 0;
+        }
+      </style>
   </head>
   <body>
     <div id="app">
-      <canvas id="canvas"></canvas>
+      <div id="coordinates"></div>
+      <canvas id="canvas" onmousemove="mouseMove(event)"></canvas>
     </div>
   </body>
 </html>

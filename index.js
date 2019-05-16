@@ -1,6 +1,17 @@
 const width = 1200,
   height = 1621;
 
+const CARD_RATIO = 1.42;
+const CARD_RATIO_ERROR = 0.1;
+
+const DISPLAY = {
+  ORIGINAL_PICTURE: true,
+  FEATURES: true,
+  EMPTY: true,
+  TEMP_CARDS: true,
+  CARDS: true
+};
+
 loadImage = (url) => new Promise((resolve, reject) => {
   const img = new Image(width, height);
   img.addEventListener('load', () => {
@@ -13,12 +24,28 @@ init = async () => {
   const canvas = document.getElementById('canvas');
   canvas.width = width;
   canvas.height = height;
-  const ctx = canvas.getContext('2d');
+  const context = canvas.getContext('2d');
 
   const img = await loadImage('./cards/pok2.jpg');
-  ctx.drawImage(img, 0, 0);
+  context.drawImage(img, 0, 0);
 
-  await initDetectFeatures(canvas);
+  const features = await initDetectFeatures(canvas);
+
+  const cards = detectCards(features);
+
+  if (DISPLAY.CARDS) {
+    context.strokeStyle = 'blue';
+    context.lineWidth = 8;
+    context.beginPath();
+    for (var card of cards) {
+      context.moveTo(card.start.X, card.start.Y);
+      context.lineTo(card.end.X, card.start.Y);
+      context.lineTo(card.end.X, card.end.Y);
+      context.lineTo(card.start.X, card.end.Y);
+      context.lineTo(card.start.X, card.start.Y);
+      context.stroke();
+    }
+  }
 }
 
 initDetectFeatures = (canvas) => {
@@ -29,70 +56,192 @@ initDetectFeatures = (canvas) => {
   var gray = tracking.Image.grayscale(imageData.data, width, height);
   var corners = tracking.Fast.findCorners(gray, width, height);
 
-  context.clearRect(0, 0, canvas.width, canvas.height);
-
-  console.log('detect features', gray, corners);
-
-  for (var i = 0; i < corners.length; i += 2) {
-    context.fillStyle = '#f00';
-    context.fillRect(corners[i], corners[i + 1], 3, 3);
+  if (!DISPLAY.ORIGINAL_PICTURE) {
+    context.clearRect(0, 0, canvas.width, canvas.height);
   }
 
-  const features = detectCards(corners);
+  if (DISPLAY.FEATURES) {
+    for (var i = 0; i < corners.length; i += 2) {
+      context.fillStyle = '#f00';
+      context.fillRect(corners[i], corners[i + 1], 3, 3);
+    }
+  }
+
+  return corners;
 };
 
 detectCards = (corners) => {
   const points = [];
+  const matrix = [];
 
+  // Transform array
+  for (var index = 0; index < corners.length; index += 2) {
+    const i = corners[index],
+          j = corners[index + 1];
+    points.push([i, j]);
+  }
+  
+  for (var i = 0; i < height; i++) {
+    matrix[i] = new Array(width);
+  }
 
+  for (const point of points) {
+    matrix[point[0]][point[1]] = 1;
+  }
+
+  const emptyLines = [],
+        emptyColumns = [];
+  for (var i = 0; i < height; i++) {
+    if (matrix[i].indexOf(1) < 0) {
+      emptyColumns.push(i);
+    }
+  }
+
+  for (var j = 0; j < width; j++) {
+    let found = false;
+    for (var i = 0; i < height; i++) {
+      if (matrix[i][j]) {
+        console.log(i, j)
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      emptyLines.push(j);
+    }
+  }
+console.log('matrix', matrix, matrix.length)
+  console.log('empty lines', emptyLines)
+
+  if (DISPLAY.EMPTY) {
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+  
+    ctx.strokeStyle = 'yellow';
+    ctx.beginPath();
+    for (let line of emptyLines) {
+      ctx.moveTo(0, line);
+      ctx.lineTo(width - 1, line);
+      ctx.stroke();
+    }
+  
+    for (let col of emptyColumns) {
+      ctx.moveTo(col, 0);
+      ctx.lineTo(col, height - 1);
+      ctx.stroke();
+    }
+  }
+  
+  return extractCardsFromEmpty(emptyLines, emptyColumns);
 };
 
-// initDetectFeatures = async (canvas) => {
-//   const context = canvas.getContext('2d');
+extractCardsFromEmpty = (emptyLines, emptyColumns) => {        
+  let totalCards = [];
+  let isScanningCard = false;
+  let currentCard = [];
+  for (let i = 1; i < height - 1; i++) {
+    let isEmpty = emptyLines.indexOf(i) >= 0;
+    
+    if (isEmpty) {
+      if (isScanningCard) {
+        // We were scanning a card block and we reached its end
+        // We compute the rectangle ratio to see if it matches a card
 
-//   // load pattern
-//   const patternImg = await loadImage('./cards/2.shape.jpg');
-//   context.drawImage(patternImg, width, 0);
+        // context.strokeStyle = 'black';
+        // context.strokeRect(0, currentCard[0], width, currentCard.length);
 
-//   tracking.Fast.THRESHOLD = 20;
-//   tracking.Brief.N = 512
+        // The cards computed for this block of lines
+        const cards = computeCardsFromLinesBlocks(currentCard, emptyColumns);
+        
+        const actualCards = [];
+        for (const card of cards) {
+          let height = card.end.Y - card.start.Y;
+          let width = card.end.X - card.start.X;
 
-//   window.descriptorLength = 256;
-//   window.matchesShown = 200;
-//   window.blurRadius = 3;
+          const diff = CARD_RATIO - (height / width);
+          if (Math.abs(diff) < CARD_RATIO_ERROR) {
+            actualCards.push(card);
+          }
+        }
 
-//   var imageData1 = context.getImageData(0, 0, width, height);
-//   var imageData2 = context.getImageData(width, 0, width, height);
+        // No card with good ration was found on this block of lines
+        // Delete the empty row to try with a bigger block of lines
+        if (cards.length > 0 && actualCards.length == 0) {
+          let hasReachedNextBlock = false;
+          let nextLine = i;
+          while (!hasReachedNextBlock && nextLine < height - 1) {
+            emptyLines.splice(emptyLines.indexOf(nextLine), 1);
+            nextLine++;
+            hasReachedNextBlock = emptyLines.indexOf(nextLine) < 0;
+          }
+        } else {
+          totalCards = totalCards.concat(actualCards);
+          isScanningCard = false;
+          currentCard = [];
+        }
+      }
+    } else {
+      // Line is not empty
+      if (isScanningCard) {
+        currentCard.push(i);
+      } else {
+        isScanningCard = true;
+        currentCard = [ i ];
+      }
+    }
+  }
 
-//   var gray1 = tracking.Image.grayscale(tracking.Image.blur(imageData1.data, width, height, blurRadius), width, height);
-//   var gray2 = tracking.Image.grayscale(tracking.Image.blur(imageData2.data, width, height, blurRadius), width, height);
+  return totalCards;
+};
 
-//   var corners1 = tracking.Fast.findCorners(gray1, width, height);
-//   var corners2 = tracking.Fast.findCorners(gray2, width, height);
+computeCardsFromLinesBlocks = (linesBlock, emptyColumns) => {
+  let cards = [];
+  let isScanningCard = false;
+  let currentCard = [];
+  for (let j = 1; j < width - 1; j++) {
+    let isEmpty = emptyColumns.indexOf(j) >= 0;
+    if (isEmpty) {
+      if (isScanningCard) {
+        cards.push({
+          start: {
+            X: currentCard[0],
+            Y: linesBlock[0]
+          },
+          end: {
+            X: currentCard[currentCard.length - 1],
+            Y: linesBlock[linesBlock.length - 1]
+          }
+        });
 
-//   console.log('shape corners', gray2, corners2)
+        isScanningCard = false;
+        currentCard = [];
+      }
+    } else {
+      if (isScanningCard) {
+        currentCard.push(j);
+      } else {
+        isScanningCard = true;
+        currentCard = [ j ];
+      }
+    }
+  }
 
-//   var descriptors1 = tracking.Brief.getDescriptors(gray1, width, corners1);
-//   var descriptors2 = tracking.Brief.getDescriptors(gray2, width, corners2);
-
-//   var matches = tracking.Brief.reciprocalMatch(corners1, descriptors1, corners2, descriptors2);
-//   matches.sort(function(a, b) {
-//     return b.confidence - a.confidence;
-//   });
-
-//   for (var i = 0; i < Math.min(window.matchesShown, matches.length); i++) {
-//     var color = '#' + Math.floor(Math.random()*16777215).toString(16);
-//     context.fillStyle = color;
-//     context.strokeStyle = color;
-//     context.fillRect(matches[i].keypoint1[0], matches[i].keypoint1[1], 4, 4);
-//     context.fillRect(matches[i].keypoint2[0] + width, matches[i].keypoint2[1], 4, 4);
-//     context.beginPath();
-//     context.moveTo(matches[i].keypoint1[0], matches[i].keypoint1[1]);
-//     context.lineTo(matches[i].keypoint2[0] + width, matches[i].keypoint2[1]);
-//     context.stroke();
-//   }
-// };
+  return cards;
+};
 
 document.addEventListener('DOMContentLoaded', () => {
   init();
 }, false);
+
+// Misc
+mouseMove = (evt) => {
+  var canvas = document.getElementById('canvas');
+  var coordinates = document.getElementById('coordinates');
+  var rect = canvas.getBoundingClientRect();
+  var c =  {
+    x: evt.clientX - rect.left,
+    y: evt.clientY - rect.top
+  };
+  coordinates.innerHTML = c.x + ';' + c.y;
+}
