@@ -1,16 +1,27 @@
-const width = 1200,
-  height = 1621;
+const width = 3024,
+  height = 4032;
 
 const CARD_RATIO = 1.42;
-const CARD_RATIO_ERROR = 0.1;
+const CARD_RATIO_ERROR = 0.05;
+
+const STARTING_ANGLE_DEGREES = -1;
+const ENDING_ANGLE_DEGREES = 1;
+const STEP_ANGLES = 0.2;
 
 const DISPLAY = {
   ORIGINAL_PICTURE: true,
-  FEATURES: true,
-  EMPTY: true,
-  TEMP_CARDS: true,
-  CARDS: true
+  FEATURES: false,
+  ISOLATED_FEATURES: false,
+  EMPTY: false,
+  TEMP_CARDS: false,
+  CARDS: false
 };
+
+const OPTIONS = {
+  REMOVE_ISOLATED_FEATURES_POINTS: true
+};
+
+let canvas;
 
 loadImage = (url) => new Promise((resolve, reject) => {
   const img = new Image(width, height);
@@ -21,15 +32,54 @@ loadImage = (url) => new Promise((resolve, reject) => {
 });
 
 init = async () => {
-  const canvas = document.getElementById('canvas');
+  canvas = document.getElementById('canvas');
   canvas.width = width;
   canvas.height = height;
+  canvas.addEventListener('mousemove', mouseMove);
+  
+  // Scan the same picture with different angles
+  let allScannedCards = [];
+  for (let i = STARTING_ANGLE_DEGREES; i <= ENDING_ANGLE_DEGREES; i = (i + STEP_ANGLES)) {
+    console.log('Scanning with an angle of ' + i.toFixed(1) + '°...');
+    const cards = await scanCanvas(i);
+    allScannedCards = allScannedCards.concat(cards);
+  }
+
+  // Keep only 1 picture per starting point (remove doubles)
+  allScannedCards = allScannedCards.reduce((acc, card) => {
+    console.log('acc vs current card', acc, card)
+    const isDouble = acc.filter((c) => 
+      Math.abs(c.start.X - card.start.X) < 100 &&
+      Math.abs(c.start.Y - card.start.Y) < 100
+    ).length > 0;
+    console.log('isDOuble ? ', isDouble)
+    if (!isDouble) {
+      acc.push(card);
+    }
+    return acc;
+  }, []);
+
+  const cardsImages = extractImages(allScannedCards);
+
+  for (const cardImage of cardsImages) {
+    const image = new Image();
+    image.src = cardImage;
+    document.body.append(image);
+  }
+}
+
+scanCanvas = async (angle) => {
   const context = canvas.getContext('2d');
+  context.clearRect(0, 0, canvas.width, canvas.height);
 
-  const img = await loadImage('./cards/pok2.jpg');
+  const img = await loadImage('./cards/pok7.jpg');
+
+  context.save();
+  context.rotate(angle * Math.PI / 180);
   context.drawImage(img, 0, 0);
+  context.restore();
 
-  const features = await initDetectFeatures(canvas);
+  const features = await initDetectFeatures();
 
   const cards = detectCards(features);
 
@@ -37,7 +87,7 @@ init = async () => {
     context.strokeStyle = 'blue';
     context.lineWidth = 8;
     context.beginPath();
-    for (var card of cards) {
+    for (const card of cards) {
       context.moveTo(card.start.X, card.start.Y);
       context.lineTo(card.end.X, card.start.Y);
       context.lineTo(card.end.X, card.end.Y);
@@ -46,9 +96,11 @@ init = async () => {
       context.stroke();
     }
   }
+
+  return cards;
 }
 
-initDetectFeatures = (canvas) => {
+initDetectFeatures = () => {
   const context = canvas.getContext('2d');
 
   tracking.Fast.THRESHOLD = 20;
@@ -89,19 +141,22 @@ detectCards = (corners) => {
     matrix[point[0]][point[1]] = 1;
   }
 
+  if (OPTIONS.REMOVE_ISOLATED_FEATURES_POINTS) {
+    removeIsolatedPointsFilter(matrix);
+  }
+
   const emptyLines = [],
         emptyColumns = [];
-  for (var i = 0; i < height; i++) {
+  for (var i = 0; i < width; i++) {
     if (matrix[i].indexOf(1) < 0) {
       emptyColumns.push(i);
     }
   }
 
-  for (var j = 0; j < width; j++) {
+  for (var j = 0; j < height; j++) {
     let found = false;
-    for (var i = 0; i < height; i++) {
+    for (var i = 0; i < width; i++) {
       if (matrix[i][j]) {
-        console.log(i, j)
         found = true;
         break;
       }
@@ -111,11 +166,8 @@ detectCards = (corners) => {
       emptyLines.push(j);
     }
   }
-console.log('matrix', matrix, matrix.length)
-  console.log('empty lines', emptyLines)
 
   if (DISPLAY.EMPTY) {
-    const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
   
     ctx.strokeStyle = 'yellow';
@@ -140,6 +192,7 @@ extractCardsFromEmpty = (emptyLines, emptyColumns) => {
   let totalCards = [];
   let isScanningCard = false;
   let currentCard = [];
+  const context = canvas.getContext('2d')
   for (let i = 1; i < height - 1; i++) {
     let isEmpty = emptyLines.indexOf(i) >= 0;
     
@@ -148,24 +201,34 @@ extractCardsFromEmpty = (emptyLines, emptyColumns) => {
         // We were scanning a card block and we reached its end
         // We compute the rectangle ratio to see if it matches a card
 
-        // context.strokeStyle = 'black';
-        // context.strokeRect(0, currentCard[0], width, currentCard.length);
-
         // The cards computed for this block of lines
         const cards = computeCardsFromLinesBlocks(currentCard, emptyColumns);
         
+        // context.strokeStyle = 'red';
+        // context.lineWidth = 8;
+        // context.beginPath();
+        // for (const card of cards) {
+        //   context.moveTo(card.start.X, card.start.Y);
+        //   context.lineTo(card.end.X, card.start.Y);
+        //   context.lineTo(card.end.X, card.end.Y);
+        //   context.lineTo(card.start.X, card.end.Y);
+        //   context.lineTo(card.start.X, card.start.Y);
+        //   context.stroke();
+        // }
+
         const actualCards = [];
         for (const card of cards) {
           let height = card.end.Y - card.start.Y;
           let width = card.end.X - card.start.X;
 
           const diff = CARD_RATIO - (height / width);
-          if (Math.abs(diff) < CARD_RATIO_ERROR) {
+          const hasAtLeastMinimumSize = width > 100 && height > 100;
+          if ((Math.abs(diff) < CARD_RATIO_ERROR) && hasAtLeastMinimumSize) {
             actualCards.push(card);
           }
         }
 
-        // No card with good ration was found on this block of lines
+        // No card with good ratio was found on this block of lines
         // Delete the empty row to try with a bigger block of lines
         if (cards.length > 0 && actualCards.length == 0) {
           let hasReachedNextBlock = false;
@@ -230,13 +293,83 @@ computeCardsFromLinesBlocks = (linesBlock, emptyColumns) => {
   return cards;
 };
 
+extractImages = (cards) => {
+  const context = canvas.getContext('2d');
+  const images = [];
+
+  for (let card of cards) {
+    const imageWidth = card.end.X - card.start.X;
+    const imageHeight = card.end.Y - card.start.Y;
+
+    // Retrieve the image data from the main canvas
+    const imageData = context.getImageData(card.start.X, card.start.Y, imageWidth, imageHeight);
+
+    // Create a temp canvas for image data to dataUrl conversion
+    const tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width = imageWidth;
+    tmpCanvas.height = imageHeight;
+    const tmpCtx = tmpCanvas.getContext('2d');
+    tmpCtx.putImageData(imageData, 0, 0);
+    images.push(tmpCanvas.toDataURL());
+  }
+
+  return images;
+};
+
+removeIsolatedPointsFilter = (matrix) => {
+  const context = canvas.getContext('2d');
+  let nbNeighbours = (x, y, range) => {
+    let minI = x - range,
+        maxI = x + range,
+        minJ = y - range,
+        maxJ = y + range,
+        nb = -1;
+
+    if (minI < 0)
+      minI = 0;
+    
+    if (maxI > width) 
+      maxI = width;
+
+    if (minJ < 0)
+      minJ = 0;
+
+    if (maxJ > height)
+      maxJ = height;
+
+    for (var j = minJ; j < maxJ; j++) {
+      for (var i = minI; i < maxI; i++) {
+        if (matrix[i][j]) {
+          nb++;
+        }
+      }
+    }
+
+    return nb;
+  }
+
+  for (var j = 0; j < height; j++) {
+    for (var i = 0; i < width; i++) {
+      if (matrix[i][j]) {
+        if (nbNeighbours(i, j, 15) < 5) {
+          matrix[i][j] = null;
+
+          if (DISPLAY.ISOLATED_FEATURES) {
+            context.fillStyle = 'green';
+            context.fillRect(i, j, 3, 3);
+          }
+        }
+      }
+    }
+  }
+};
+
 document.addEventListener('DOMContentLoaded', () => {
   init();
 }, false);
 
 // Misc
 mouseMove = (evt) => {
-  var canvas = document.getElementById('canvas');
   var coordinates = document.getElementById('coordinates');
   var rect = canvas.getBoundingClientRect();
   var c =  {
