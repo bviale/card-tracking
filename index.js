@@ -47,12 +47,10 @@ init = async () => {
 
   // Keep only 1 picture per starting point (remove doubles)
   allScannedCards = allScannedCards.reduce((acc, card) => {
-    console.log('acc vs current card', acc, card)
     const isDouble = acc.filter((c) => 
       Math.abs(c.start.X - card.start.X) < 100 &&
       Math.abs(c.start.Y - card.start.Y) < 100
     ).length > 0;
-    console.log('isDOuble ? ', isDouble)
     if (!isDouble) {
       acc.push(card);
     }
