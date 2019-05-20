@@ -1,5 +1,5 @@
-const width = 3024,
-  height = 4032;
+let width,
+  height;
 
 const CARD_RATIO = 1.42;
 const CARD_RATIO_ERROR = 0.05;
@@ -26,15 +26,17 @@ let canvas;
 loadImage = (url) => new Promise((resolve, reject) => {
   const img = new Image(width, height);
   img.addEventListener('load', () => {
+    width = img.width;
+    height = img.height;
+    canvas.width = width;
+    canvas.height = height;
     resolve(img);
   });
   img.src = url;
 });
 
 init = async () => {
-  canvas = document.getElementById('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  canvas = document.getElementById('canvas');;
   canvas.addEventListener('mousemove', mouseMove);
   
   // Scan the same picture with different angles
@@ -79,7 +81,7 @@ scanCanvas = async (angle) => {
   const context = canvas.getContext('2d');
   context.clearRect(0, 0, canvas.width, canvas.height);
 
-  const img = await loadImage('./cards/pok7.jpg');
+  const img = await loadImage('./cards/pok11.jpg');
 
   context.save();
   context.rotate(angle * Math.PI / 180);
