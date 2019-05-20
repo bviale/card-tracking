@@ -42,17 +42,26 @@ init = async () => {
   for (let i = STARTING_ANGLE_DEGREES; i <= ENDING_ANGLE_DEGREES; i = (i + STEP_ANGLES)) {
     console.log('Scanning with an angle of ' + i.toFixed(1) + '°...');
     const cards = await scanCanvas(i);
+    for (const card of cards) {
+      card.degrees = i;
+    }
     allScannedCards = allScannedCards.concat(cards);
   }
 
   // Keep only 1 picture per starting point (remove doubles)
   allScannedCards = allScannedCards.reduce((acc, card) => {
-    const isDouble = acc.filter((c) => 
+    const doubles = acc.filter((c) => 
       Math.abs(c.start.X - card.start.X) < 100 &&
       Math.abs(c.start.Y - card.start.Y) < 100
-    ).length > 0;
-    if (!isDouble) {
+    );
+    if (doubles.length == 0) {
       acc.push(card);
+    } else {
+      // If the new card has been detected with a smaller angle than the double,
+      // replace the double by this new one
+      if (Math.abs(card.degrees) < Math.abs(doubles[0].degrees)) {
+        acc[acc.indexOf(doubles[0])] = card;
+      }
     }
     return acc;
   }, []);
